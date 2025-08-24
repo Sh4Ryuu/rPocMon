@@ -39,6 +39,32 @@ cargo run -- -i 5
 cargo run -- -h
 ```
 
+### Stealth feature 
+#### Configure Stealth Settings
+```bash
+# Access stealth configuration menu
+cargo run -- -f stealth-config
+```
+This will open an interactive menu where you can:
+
+- **Hide processes by name**: Completely hide processes containing specific names
+- **Hide processes by PID**: Hide specific process IDs
+- **Rename processes**: Change how process names are displayed
+- **View current configuration**: See all active stealth settings
+- **Clear configurations**: Reset all stealth settings
+
+The stealth settings are automatically saved to stealth_config.json and include:
+```json
+{
+  "hidden_processes": ["chrome", "firefox"],
+  "renamed_processes": {
+    "suspicious_tool": "system_service",
+    "payload": "winlogon"
+  },
+  "hidden_pids": [1234, 5678]
+}
+```
+
 ### Command Line Options
 
 | Option | Short        | Description                              |
@@ -114,17 +140,6 @@ RProcMon includes built-in security analysis capabilities:
 - Orphaned process detection
 - Suspicious process name identification
 - New process alerting
-
-## Project Structure
-
-```
-src/
-├── main.rs          # Entry point
-├── args.rs          # Command line argument parsing
-├── types.rs         # Data structures and types
-├── monitor.rs       # Main monitoring logic
-└── utils.rs         # Utility functions
-```
 
 ## Dependencies
 
