@@ -1,7 +1,7 @@
 # RProcMon 🔍
 
 A powerful, real-time process monitor written in Rust for security analysis and system monitoring.
-
+(Still under development)
 ## Features
 
 - **Real-time Process Monitoring**: Track running processes with CPU and memory usage
@@ -12,6 +12,8 @@ A powerful, real-time process monitor written in Rust for security analysis and 
 - **Interactive Interface**: Clean terminal UI with color-coded CPU usage alerts
 - **Security Analysis**: Built-in detection for potentially suspicious activities
 - **Cross-platform**: Works on Windows, macOS, and Linux
+- **Process Stealth**: Hide processes from view or rename them for operational security
+- **Interactive Stealth Config**: Configure stealth settings on-the-fly
 
 ## Installation
 
@@ -138,13 +140,6 @@ src/
 - Minimal system resource usage
 - Configurable refresh intervals
 - Real-time updates without blocking
-
-## Platform Support
-
-- ✅ **Linux**: Full support
-- ✅ **Windows**: Full support
-- ✅ **macOS**: Full support
-- ✅ **FreeBSD**: Basic support
 
 ## Contributing
 

@@ -15,16 +15,15 @@ use std::io::{self, stdout};
 use crate::args::Args;
 use crate::types::{ProcessInfo, NetworkConnection, MonitorSnapshot, SystemSnapshot};
 use crate::utils::truncate_string;
+use crate::stealth::StealthManager;
 
 pub struct ProcessMonitor {
     system: System,
     previous_processes: HashMap<u32, ProcessInfo>,
     args: Args,
-    // TODO: Fix warning - start_time field is never read
-    // Either remove this field if not needed, or implement functionality that uses it
-    // For example, you could display monitor uptime or calculate total monitoring duration
     start_time: Instant,
     snapshots: Vec<MonitorSnapshot>,
+    stealth_manager: StealthManager,
 }
 
 impl ProcessMonitor {
@@ -38,12 +37,13 @@ impl ProcessMonitor {
             args,
             start_time: Instant::now(),
             snapshots: Vec::new(),
+            stealth_manager: StealthManager::new(),
         }
     }
 
     pub fn run(&mut self) -> io::Result<()> {
-        println!("🔍 RProcMon - Rust Process Monitor");
-        println!("Press 'q' to quit, 's' to save snapshot\n");
+        println!("🔍 RProcMon - Rust Process Monitor (Stealth Mode Active)");
+        println!("Press 'q' to quit, 's' to save snapshot, 'h' to toggle stealth config\n");
 
         // Hide cursor for cleaner output
         execute!(stdout(), Hide)?;
@@ -70,6 +70,13 @@ impl ProcessMonitor {
                         KeyCode::Char('c') => {
                             execute!(stdout(), Clear(ClearType::All))?;
                         }
+                        KeyCode::Char('h') => {
+                            execute!(stdout(), Show)?;
+                            if let Err(e) = self.stealth_manager.interactive_config() {
+                                println!("Error configuring stealth: {}", e);
+                            }
+                            execute!(stdout(), Hide)?;
+                        }
                         _ => {}
                     }
                 }
@@ -94,11 +101,22 @@ impl ProcessMonitor {
         let mut processes = Vec::new();
         let mut network_connections = Vec::new();
 
-        // Collect process information
+        // Collect process information with stealth filtering
         for (pid, process) in self.system.processes() {
+            let original_name = process.name().to_string_lossy().to_string();
+
+            // Apply stealth filtering - skip hidden processes
+            if self.stealth_manager.is_process_hidden(&original_name) ||
+                self.stealth_manager.is_pid_hidden(pid.as_u32()) {
+                continue;
+            }
+
+            // Get display name (potentially renamed)
+            let display_name = self.stealth_manager.get_display_name(&original_name);
+
             let process_info = ProcessInfo {
                 pid: pid.as_u32(),
-                name: process.name().to_string_lossy().to_string(),
+                name: display_name, // Use display name instead of original
                 cmd: process.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect(),
                 cpu_usage: process.cpu_usage(),
                 memory: process.memory(),
@@ -109,9 +127,10 @@ impl ProcessMonitor {
                 exe_path: process.exe().map(|p| p.to_string_lossy().to_string()),
             };
 
-            // Apply filter if specified
+            // Apply original filter if specified (but not if it's stealth-config)
             if let Some(filter) = &self.args.filter {
-                if !process_info.name.to_lowercase().contains(&filter.to_lowercase()) {
+                if filter != "stealth-config" &&
+                    !process_info.name.to_lowercase().contains(&filter.to_lowercase()) {
                     continue;
                 }
             }
@@ -123,12 +142,10 @@ impl ProcessMonitor {
         if self.args.network {
             let networks = Networks::new_with_refreshed_list();
             for (interface_name, network) in &networks {
-                // This is a simplified network connection representation
-                // In a real implementation, you'd need platform-specific code to get actual connections
                 if network.received() > 0 || network.transmitted() > 0 {
                     let conn = NetworkConnection {
                         process_name: format!("Interface: {}", interface_name),
-                        pid: 0, // Would need netstat-like functionality
+                        pid: 0,
                         local_addr: "0.0.0.0".to_string(),
                         remote_addr: "0.0.0.0".to_string(),
                         state: "ACTIVE".to_string(),
@@ -143,7 +160,7 @@ impl ProcessMonitor {
             total_memory: self.system.total_memory(),
             used_memory: self.system.used_memory(),
             cpu_count: self.system.cpus().len(),
-            load_average: 0.0, // load_average method doesn't exist in current sysinfo version
+            load_average: 0.0,
             uptime: System::uptime(),
         };
 
@@ -157,14 +174,24 @@ impl ProcessMonitor {
 
     fn display_processes(&self, snapshot: &MonitorSnapshot) {
         let monitor_uptime = self.start_time.elapsed().as_secs();
-        println!("📊 System Overview [{}]", snapshot.timestamp.format("%Y-%m-%d %H:%M:%S"));
+
+        // Show stealth status
+        let hidden_count = self.stealth_manager.get_hidden_processes().len() +
+            self.stealth_manager.get_hidden_pids().len();
+        let renamed_count = self.stealth_manager.get_rename_mappings().len();
+
+        println!("📊 System Overview [{}] 🥷 Hidden: {} | Renamed: {}",
+                 snapshot.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                 hidden_count,
+                 renamed_count);
+
         println!("Memory: {:.1}% ({}/{} MB) | CPUs: {} | Uptime: {}s | Monitor: {}s | Processes: {}",
                  (snapshot.system_info.used_memory as f64 / snapshot.system_info.total_memory as f64) * 100.0,
                  snapshot.system_info.used_memory / 1_048_576,
                  snapshot.system_info.total_memory / 1_048_576,
                  snapshot.system_info.cpu_count,
                  snapshot.system_info.uptime,
-                 monitor_uptime,  // <- This uses the start_time field
+                 monitor_uptime,
                  snapshot.processes.len()
         );
         println!("{}", "─".repeat(120));
@@ -191,7 +218,7 @@ impl ProcessMonitor {
                      process.pid,
                      truncate_string(&process.name, 25),
                      process.cpu_usage,
-                     process.memory / 1024, // Convert to KB
+                     process.memory / 1024,
                      process.parent_pid.map_or("-".to_string(), |p| p.to_string()),
                      process.user_id.map_or("-".to_string(), |u| u.to_string()),
                      truncate_string(&process.status, 20)
@@ -286,43 +313,4 @@ impl ProcessMonitor {
         println!("💾 All snapshots saved to: {}", output_path);
         Ok(())
     }
-}
-
-// Additional utility functions for security analysis
-
-impl ProcessMonitor {
-    // Detect potentially suspicious processes
-    /*fn detect_suspicious_activity(&self, snapshot: &MonitorSnapshot) -> Vec<String> {
-        let mut alerts = Vec::new();
-
-        for process in &snapshot.processes {
-            // Check for high CPU usage
-            if process.cpu_usage > 80.0 {
-                alerts.push(format!("High CPU usage: {} ({}%)", process.name, process.cpu_usage));
-            }
-
-            // Check for unusual process names or paths
-            if let Some(exe_path) = &process.exe_path {
-                if exe_path.contains("/tmp/") || exe_path.contains("\\temp\\") {
-                    alerts.push(format!("Process running from temp directory: {}", process.name));
-                }
-            }
-
-            // Check for processes with suspicious names
-            let suspicious_names = vec!["nc", "netcat", "ncat", "socat", "wget", "curl"];
-            for suspicious in suspicious_names {
-                if process.name.to_lowercase().contains(suspicious) {
-                    alerts.push(format!("Potentially suspicious process: {}", process.name));
-                }
-            }
-
-            // Check for processes without parent (potential orphans)
-            if process.parent_pid.is_none() && process.pid != 1 {
-                alerts.push(format!("Orphaned process detected: {} (PID: {})",
-                                    process.name, process.pid));
-            }
-        }
-
-        alerts
-    }*/
 }
