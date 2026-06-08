@@ -40,4 +40,7 @@ pub struct SystemSnapshot {
     pub cpu_count: usize,
     pub load_average: f64,
     pub uptime: u64,
+    /// Per-core CPU usage percentage; absent in snapshots written before this field was added
+    #[serde(default)]
+    pub cpu_per_core: Vec<f32>,
 }

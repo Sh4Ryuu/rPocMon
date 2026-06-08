@@ -1,172 +1,314 @@
-# RProcMon 🔍
+# RProcMon
 
-A powerful, real-time process monitor written in Rust for security analysis and system monitoring.
-(Still under development)
+A real-time, terminal-based process monitor written in Rust, built for security analysis and system inspection.
+
+> Still under active development.
+
+---
+
 ## Features
 
-- **Real-time Process Monitoring**: Track running processes with CPU and memory usage
-- **Network Activity Monitoring**: Display active network connections and interfaces
-- **Process Alerting**: Get notifications when new processes start
-- **Data Export**: Save monitoring snapshots to JSON files
-- **Process Filtering**: Filter processes by name for focused monitoring
-- **Interactive Interface**: Clean terminal UI with color-coded CPU usage alerts
-- **Security Analysis**: Built-in detection for potentially suspicious activities
-- **Cross-platform**: Works on Windows, macOS, and Linux
-- **Process Stealth**: Hide processes from view or rename them for operational security
-- **Interactive Stealth Config**: Configure stealth settings on-the-fly
+| Feature | Description |
+|---------|-------------|
+| **Real-time process monitoring** | CPU%, memory, PID, PPID, UID, status — sorted by CPU, refreshed every N seconds |
+| **Per-process network sockets** | True `local:port → remote:port` per PID (not just interface byte counts) |
+| **Per-core CPU breakdown** | Live usage for each core, color-coded, always visible in the header |
+| **Process kill from TUI** | Arrow-key selection + `k`/`K` for SIGTERM / SIGKILL without leaving the monitor |
+| **PID focus mode** | Drill into one process — memory %, open FDs, threads, CWD, its own sockets |
+| **Memory color coding** | High-memory processes highlighted independently from CPU coloring |
+| **JSON & CSV export** | Full structured JSON or flat CSV; snapshot on demand or on exit |
+| **New process alerting** | Real-time notification when a process spawns |
+| **Name filtering** | Show only processes matching a substring |
+| **Process stealth** | Hide or rename processes by name or PID for operational use |
+| **Responsive input** | Keys are processed throughout the full refresh interval — no blocked sleep |
+| **Cross-platform** | Linux and Windows (network layer is platform-specific; see table below) |
 
-## Installation
+---
 
-### Prerequisites
-- Rust (install from [rustup.rs](https://rustup.rs/))
+## Platform Support
 
-### Build from Source
+| Capability | Linux | Windows | macOS |
+|------------|:-----:|:-------:|:-----:|
+| Process monitoring | ✓ | ✓ | ✓ |
+| Network connections | ✓ `/proc/net` | ✓ `netstat -ano` | — |
+| Load average | ✓ | N/A | ✓ |
+| PID focus extras (FD/CWD/threads) | ✓ | — | — |
+| Process kill | ✓ | ✓ | ✓ |
+| CSV / JSON export | ✓ | ✓ | ✓ |
+
+> **Windows note:** `--network` calls `netstat -ano` internally. Run as Administrator for full socket visibility.
+
+---
+
+## Quick Start
+
 ```bash
+# Build release binary
 cargo build --release
-```
+# Binary at: ./target/release/rPocMon
 
-## Usage
+# Run with defaults (2s interval, top 20 processes by CPU)
+./target/release/rPocMon
 
-### Basic Usage
-```bash
-# Start monitoring with default 2-second intervals
+# Or run via cargo during development
 cargo run
 
-# Monitor with custom interval
-cargo run -- -i 5
-
-# Show help
-cargo run -- -h
+# All flags
+cargo run -- --help
 ```
 
-### Stealth feature 
-#### Configure Stealth Settings
+---
+
+## Command Line Options
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--interval` | `-i` | `2` | Refresh interval in seconds |
+| `--output` | `-o` | — | File path to write all snapshots on exit |
+| `--format` | | `json` | Output format: `json` or `csv` |
+| `--filter` | `-f` | — | Show only processes whose name contains this string |
+| `--pid` | `-p` | — | Focus mode: track a single PID in detail |
+| `--network` | `-n` | off | Show per-process TCP/UDP sockets |
+| `--alert` | `-a` | off | Print an alert when a new process appears |
+| `--verbose` | `-v` | off | Show full command line and exe path per process |
+| `--stealth-config` | | — | Open the interactive stealth configuration menu |
+
+---
+
+## Interactive Controls
+
+| Key | Action |
+|-----|--------|
+| `q` | Quit |
+| `↑` / `↓` | Move selection cursor through the process list |
+| `k` | Send **SIGTERM** to selected process |
+| `K` | Send **SIGKILL** to selected process |
+| `s` | Save the current snapshot immediately (format follows `--format`) |
+| `h` | Open stealth configuration menu |
+
+---
+
+## Usage Examples
+
 ```bash
-# Access stealth configuration menu
-cargo run -- -f stealth-config
+# Basic monitor — refresh every 2s
+cargo run
+
+# Faster refresh with new-process alerts
+cargo run -- -i 1 -a
+
+# Real network sockets per process
+cargo run -- -n
+
+# Focus on one suspicious PID (shows FDs, threads, CWD, connections)
+cargo run -- -p 1337
+
+# Filter to processes named "nginx" and show their sockets
+cargo run -- -f nginx -n
+
+# Verbose output — full command lines and exe paths
+cargo run -- -v
+
+# Save all collected snapshots to JSON on exit
+cargo run -- -o session.json
+
+# Save as CSV instead
+cargo run -- -o session.csv --format csv
+
+# Full mode — all features, 5s interval
+cargo run -- -i 5 -n -a -v -o session.json
+
+# Configure which processes to hide/rename
+cargo run -- --stealth-config
 ```
-This will open an interactive menu where you can:
 
-- **Hide processes by name**: Completely hide processes containing specific names
-- **Hide processes by PID**: Hide specific process IDs
-- **Rename processes**: Change how process names are displayed
-- **View current configuration**: See all active stealth settings
-- **Clear configurations**: Reset all stealth settings
+---
 
-The stealth settings are automatically saved to stealth_config.json and include:
+## Display Layout
+
+```
+RProcMon [2026-05-17 21:03:12]  Hidden: 0 | Renamed: 0 | Load: 0.45
+Memory: 42.3% (6821/16106 MB) | CPUs: 8 | Uptime: 3600s | Monitor: 12s | Procs: 214
+Keys: q=quit  s=save  k=SIGTERM  K=SIGKILL  UP/DOWN=select  h=stealth
+Cores:      0: 12.5%   1:  8.1%   2: 45.3%   3:  2.0%   4:  0.0%   5:78.2%   6: 15.4%   7:  3.1%
+
+-------------------------------------------------------------------------------------------------------
+  PID     NAME                      CPU%     MEM(KB)      PPID     UID      STATUS
+-------------------------------------------------------------------------------------------------------
+> 4321    firefox                   45.2     512340       1        1000     Sleeping
+  1234    nginx                      2.1      12480       1        33       Sleeping
+  ...
+```
+
+### Process Table Columns
+
+| Column | Description |
+|--------|-------------|
+| PID | Process ID |
+| NAME | Process name (truncated to 25 characters) |
+| CPU% | CPU usage this interval |
+| MEM(KB) | Resident memory in kilobytes |
+| PPID | Parent process ID |
+| UID | User ID of the process owner |
+| STATUS | Kernel-reported process state |
+
+### Color Legend
+
+**Process rows:**
+
+| Color | Meaning |
+|-------|---------|
+| **Cyan** (highlight) | Currently selected process |
+| **Red** | CPU > 50% |
+| **Yellow** | CPU 25–50% |
+| **Magenta** | Memory > 10% of total RAM (CPU is normal) |
+| **Blue** | Memory 5–10% of total RAM (CPU is normal) |
+
+**Network connections:**
+
+| Color | State |
+|-------|-------|
+| **Green** | ESTABLISHED |
+| **Cyan** | LISTEN / LISTENING |
+| White | Other (SYN_*, TIME_WAIT, etc.) |
+
+**Per-core CPU:**
+
+| Color | Usage |
+|-------|-------|
+| **Red** | > 80% |
+| **Yellow** | > 50% |
+| White | Normal |
+
+---
+
+## Network View (`--network`)
+
+Enabled with `-n`. Shows up to 15 sockets, sorted ESTABLISHED → LISTEN → other.
+
+**Linux** — reads `/proc/net/tcp` and `/proc/net/udp`, resolves socket inodes to PIDs via `/proc/<pid>/fd/`. No external tools needed.
+
+**Windows** — runs `netstat -ano`, maps PIDs to process names from sysinfo. Requires Administrator for full visibility.
+
+```
+Network [42 sockets, showing 15]
+-------------------------------------------------------------------------------------------------------
+PROTO PROCESS(PID)         LOCAL                    REMOTE                   STATE
+-------------------------------------------------------------------------------------------------------
+TCP   firefox(4321)        192.168.1.5:54321        52.96.51.23:443          ESTABLISHED
+TCP   nginx(1234)          0.0.0.0:80               0.0.0.0:0                LISTEN
+...
+```
+
+---
+
+## PID Focus Mode (`--pid <pid>`)
+
+Replaces the process table with a detailed panel for one process. Network connections are always shown in focus mode, even without `--network`.
+
+```
+===================================================================================================
+  PID Focus: 4321 (firefox)
+---------------------------------------------------------------------------------------------------
+  Status   : Sleeping
+  CPU      : 45.20%
+  Memory   : 512340 KB  (3.18% of total RAM)
+  Parent   : 1
+  UID      : 1000
+  Exe      : /usr/lib/firefox/firefox
+  Command  : /usr/lib/firefox/firefox --new-window
+  CWD      : /home/user                          ← Linux only
+  Open FDs : 87                                  ← Linux only
+  Threads  : 42                                  ← Linux only
+
+  PROTO  LOCAL                    REMOTE                   STATE
+  -----------------------------------------------------------------------
+  TCP    192.168.1.5:54321        52.96.51.23:443          ESTABLISHED
+===================================================================================================
+```
+
+> The target PID bypasses the stealth filter so it is always visible in focus mode, even if listed in `hidden_processes`.
+
+---
+
+## Stealth Configuration
+
+Hide or rename processes from the monitor view — useful during engagements when you want to conceal your own tooling.
+
+```bash
+# Open from CLI before starting
+cargo run -- --stealth-config
+
+# Or press 'h' while the monitor is running
+```
+
+Menu options:
+- List all running processes (by name or PID)
+- Hide processes by name (substring match)
+- Hide processes by PID
+- Rename processes (display a different name)
+- Show / clear current configuration
+
+Settings persist to `stealth_config.json` in the working directory:
+
 ```json
 {
-  "hidden_processes": ["chrome", "firefox"],
+  "hidden_processes": ["wireshark", "burpsuite"],
   "renamed_processes": {
-    "suspicious_tool": "system_service",
-    "payload": "winlogon"
+    "rprocmon": "system_monitor"
   },
-  "hidden_pids": [1234, 5678]
+  "hidden_pids": [4321]
 }
 ```
 
-### Command Line Options
+---
 
-| Option | Short        | Description                              |
-|--------|--------------|------------------------------------------|
-| `-i`   | `--interval` | Monitor interval in seconds (default: 2) |
-| `-o`   | `--output`   | Save output to JSON file                 |
-| `-f`   | `--filter`   | Filter by process name                   |
-| `-n`   | `--network`  | Show network connections                 |
-| `-a`   | `--alert`    | Alert on new processes                   |
-| `-v`   | `--verbose`  | Verbose output with command details      |
-| `-h`   | `--help`     | Print help information                   |
+## Export Formats
 
-### Examples
+### JSON (default)
+
+Full structured output per snapshot: processes, network connections, per-core CPU, system info. Capped at 500 snapshots in memory to bound RAM usage.
 
 ```bash
-# Monitor with alerts for new processes
-cargo run -- -a
-
-# Filter processes containing "chrome" with network monitoring
-cargo run -- -f chrome -n
-
-# Save monitoring data to file with verbose output
-cargo run -- -o monitoring.json -v
-
-# Monitor every 10 seconds with all features enabled
-cargo run -- -i 10 -n -a -v
+cargo run -- -o session.json
 ```
 
-### Interactive Controls
+### CSV (`--format csv`)
 
-While running, use these keyboard shortcuts:
-- **`q`** - Quit the monitor
-- **`s`** - Save current snapshot to JSON file
-- **`c`** - Clear the screen
+Flat process table, one row per process per interval. Network connection data is JSON-only.
 
-## Output Information
+```
+timestamp,pid,name,cpu_pct,memory_kb,ppid,uid,status,exe_path,cmd
+2026-05-17T21:03:12,4321,firefox,45.20,512340,1,1000,Sleeping,/usr/lib/firefox/firefox,...
+```
 
-### Process Display
-- **PID**: Process ID
-- **NAME**: Process name (truncated to 25 chars)
-- **CPU%**: Current CPU usage percentage
-- **MEMORY(KB)**: Memory usage in kilobytes
-- **PPID**: Parent Process ID
-- **USER_ID**: User ID running the process
-- **STATUS**: Current process status
+```bash
+cargo run -- -o session.csv --format csv
+```
 
-### Color Coding
-- **🔴 Red**: Processes using >50% CPU
-- **🟡 Yellow**: Processes using 25-50% CPU
-- **⚪ White**: Normal CPU usage
-- **🟢 Green**: New process alerts
+**`s` key** — writes the most recent snapshot immediately (useful during a live session). **`--output`** — writes all accumulated snapshots on clean exit.
 
-### System Overview
-- Memory usage percentage and absolute values
-- CPU count
-- System uptime
-- Total process count
-- Monitor runtime duration
-
-## JSON Export Format
-
-Snapshots are saved in structured JSON format containing:
-- Timestamp
-- Process information (PID, name, CPU, memory, etc.)
-- Network connections (if enabled)
-- System information (memory, CPU count, uptime)
-
-## Security Features
-
-RProcMon includes built-in security analysis capabilities:
-- High CPU usage detection
-- Process monitoring from temporary directories
-- Orphaned process detection
-- Suspicious process name identification
-- New process alerting
+---
 
 ## Dependencies
 
-- **sysinfo**: System and process information
-- **clap**: Command line argument parsing
-- **chrono**: Date and time handling
-- **serde**: Serialization for JSON export
-- **crossterm**: Cross-platform terminal manipulation
+| Crate | Purpose |
+|-------|---------|
+| `sysinfo` | Cross-platform process info and signal delivery |
+| `clap` | CLI argument parsing |
+| `chrono` | Timestamps and date formatting |
+| `serde` + `serde_json` | JSON serialization |
+| `crossterm` | Cross-platform terminal control (raw mode, colors, cursor) |
 
-## Performance
-
-- Lightweight and efficient
-- Minimal system resource usage
-- Configurable refresh intervals
-- Real-time updates without blocking
+---
 
 ## Contributing
 
-Contributions are welcome! Please feel free to:
-- Report bugs and issues
-- Suggest new features
-- Submit pull requests
-- Improve documentation
+Contributions are welcome:
+- Bug reports and feature requests via issues
+- Pull requests for fixes, new features, or documentation
+- Testing on Windows and macOS is especially appreciated
 
 ## Acknowledgments
 
-- Built with the amazing Rust ecosystem
-- Inspired by traditional system monitoring tools
-
----
+Built with the Rust ecosystem. Inspired by `top`, `htop`, `ss`, and similar Unix monitoring tools.

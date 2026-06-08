@@ -6,7 +6,7 @@ authors = ["Sh4Ryuu"]
 description = "A Rust-based process monitor for security analysis and penetration testing"
 
 [dependencies]
- sysinfo = "0.37.0"
+ sysinfo = "0.32"
  clap = { version = "4.5.45", features = ["derive"] }
  chrono = { version = "0.4.41", features = ["serde"] }
  serde = { version = "1.0.219", features = ["derive"] }

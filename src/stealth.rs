@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use sysinfo::{System, ProcessesToUpdate};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StealthConfig {
@@ -153,7 +154,8 @@ impl StealthManager {
         use std::io::{self, Write};
 
         loop {
-            println!("\n🥷 Stealth Configuration Menu");
+            println!("\nStealth Configuration Menu");
+            println!("0. List running processes");
             println!("1. Hide process by name");
             println!("2. Hide process by PID");
             println!("3. Rename process");
@@ -163,7 +165,7 @@ impl StealthManager {
             println!("7. Show current config");
             println!("8. Clear all config");
             println!("9. Save and exit");
-            print!("Select option (1-9): ");
+            print!("Select option (0-9): ");
             io::stdout().flush()?;
 
             let mut input = String::new();
@@ -171,27 +173,33 @@ impl StealthManager {
             let choice = input.trim();
 
             match choice {
+                "0" => {
+                    Self::list_running_processes();
+                }
                 "1" => {
+                    Self::list_running_processes();
                     print!("Enter process name to hide: ");
                     io::stdout().flush()?;
                     let mut name = String::new();
                     io::stdin().read_line(&mut name)?;
                     self.hide_process(name.trim());
-                    println!("✅ Process '{}' added to hidden list", name.trim());
+                    println!("Process '{}' added to hidden list", name.trim());
                 }
                 "2" => {
+                    Self::list_running_processes_with_pids();
                     print!("Enter PID to hide: ");
                     io::stdout().flush()?;
                     let mut pid_input = String::new();
                     io::stdin().read_line(&mut pid_input)?;
                     if let Ok(pid) = pid_input.trim().parse::<u32>() {
                         self.hide_pid(pid);
-                        println!("✅ PID {} added to hidden list", pid);
+                        println!("PID {} added to hidden list", pid);
                     } else {
-                        println!("❌ Invalid PID format");
+                        println!("Invalid PID format");
                     }
                 }
                 "3" => {
+                    Self::list_running_processes();
                     print!("Enter original process name: ");
                     io::stdout().flush()?;
                     let mut original = String::new();
@@ -203,7 +211,7 @@ impl StealthManager {
                     io::stdin().read_line(&mut display)?;
 
                     self.rename_process(original.trim(), display.trim());
-                    println!("✅ Process '{}' will display as '{}'", original.trim(), display.trim());
+                    println!("Process '{}' will display as '{}'", original.trim(), display.trim());
                 }
                 "4" => {
                     print!("Enter process name to unhide: ");
@@ -211,7 +219,7 @@ impl StealthManager {
                     let mut name = String::new();
                     io::stdin().read_line(&mut name)?;
                     self.unhide_process(name.trim());
-                    println!("✅ Process '{}' removed from hidden list", name.trim());
+                    println!("Process '{}' removed from hidden list", name.trim());
                 }
                 "5" => {
                     print!("Enter PID to unhide: ");
@@ -220,9 +228,9 @@ impl StealthManager {
                     io::stdin().read_line(&mut pid_input)?;
                     if let Ok(pid) = pid_input.trim().parse::<u32>() {
                         self.unhide_pid(pid);
-                        println!("✅ PID {} removed from hidden list", pid);
+                        println!("PID {} removed from hidden list", pid);
                     } else {
-                        println!("❌ Invalid PID format");
+                        println!("Invalid PID format");
                     }
                 }
                 "6" => {
@@ -231,22 +239,22 @@ impl StealthManager {
                     let mut name = String::new();
                     io::stdin().read_line(&mut name)?;
                     self.remove_rename(name.trim());
-                    println!("✅ Rename mapping for '{}' removed", name.trim());
+                    println!("Rename mapping for '{}' removed", name.trim());
                 }
                 "7" => {
                     self.display_current_config();
                 }
                 "8" => {
                     self.clear_all();
-                    println!("✅ All stealth configurations cleared");
+                    println!("All stealth configurations cleared");
                 }
                 "9" => {
                     self.save_config()?;
-                    println!("✅ Configuration saved!");
+                    println!("Configuration saved!");
                     break;
                 }
                 _ => {
-                    println!("❌ Invalid option");
+                    println!("Invalid option");
                 }
             }
         }
@@ -254,26 +262,69 @@ impl StealthManager {
         Ok(())
     }
 
+    fn list_running_processes() {
+        let mut sys = System::new_all();
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+
+        let mut names: Vec<String> = sys
+            .processes()
+            .values()
+            .map(|p| p.name().to_string_lossy().to_string())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        names.sort_unstable();
+
+        println!("\nRunning processes ({} unique names):", names.len());
+        println!("{}", "-".repeat(80));
+        for chunk in names.chunks(3) {
+            let row: Vec<String> = chunk.iter().map(|n| format!("{:<26}", n)).collect();
+            println!("{}", row.join(" "));
+        }
+        println!();
+    }
+
+    fn list_running_processes_with_pids() {
+        let mut sys = System::new_all();
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+
+        let mut entries: Vec<(u32, String)> = sys
+            .processes()
+            .iter()
+            .map(|(pid, p)| (pid.as_u32(), p.name().to_string_lossy().to_string()))
+            .collect();
+        entries.sort_by_key(|(pid, _)| *pid);
+
+        println!("\nRunning processes:");
+        println!("{}", "-".repeat(50));
+        println!("{:<10} {}", "PID", "NAME");
+        println!("{}", "-".repeat(50));
+        for (pid, name) in &entries {
+            println!("{:<10} {}", pid, name);
+        }
+        println!();
+    }
+
     /// Display current stealth configuration
     fn display_current_config(&self) {
-        println!("\n📋 Current Stealth Configuration:");
+        println!("\nCurrent Stealth Configuration:");
 
         if !self.config.hidden_processes.is_empty() {
-            println!("🙈 Hidden Processes:");
+            println!("Hidden Processes:");
             for process in &self.config.hidden_processes {
                 println!("  - {}", process);
             }
         }
 
         if !self.config.hidden_pids.is_empty() {
-            println!("🔢 Hidden PIDs:");
+            println!("Hidden PIDs:");
             for pid in &self.config.hidden_pids {
                 println!("  - {}", pid);
             }
         }
 
         if !self.config.renamed_processes.is_empty() {
-            println!("🎭 Process Renames:");
+            println!("Process Renames:");
             for (original, display) in &self.config.renamed_processes {
                 println!("  - {} -> {}", original, display);
             }
@@ -281,7 +332,8 @@ impl StealthManager {
 
         if self.config.hidden_processes.is_empty()
             && self.config.hidden_pids.is_empty()
-            && self.config.renamed_processes.is_empty() {
+            && self.config.renamed_processes.is_empty()
+        {
             println!("  No stealth configurations active");
         }
     }
